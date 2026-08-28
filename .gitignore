@@ -1,3 +1,6 @@
 trace-Linux-x86_64
+trace-Darwin-arm
 CPE4464_p1_files/
 CPE4464_p1_files.tgz
+.DS_Store
+.vscode/
