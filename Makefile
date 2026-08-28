@@ -2,8 +2,7 @@
 #
 
 CC = gcc
-CFLAGS = -g -std=c99
-# CFLAGS = -g -Wall -Werror -std=c99
+CFLAGS = -g -Wall -Werror -Wextra -std=gnu99
 OS = $(shell uname -s)
 PROC = $(shell uname -p)
 EXEC_SUFFIX=$(OS)-$(PROC)
@@ -27,7 +26,7 @@ endif
 all:  trace-$(EXEC_SUFFIX)
 
 trace-$(EXEC_SUFFIX): trace.c
-	$(CC) $(CFLAGS) $(OSINC) $(OSLIB) $(OSDEF) -lpcap -o $@ trace.c checksum.c smartalloc.c
+	$(CC) $(CFLAGS) $(OSINC) $(OSLIB) $(OSDEF) -o $@ trace.c checksum.c smartalloc.c -lpcap
 
 handin: README
 	~bellardo/bin/rcvhandin bellardo p1 README smartalloc.c smartalloc.h checksum.c checksum.h trace.c Makefile
