@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <pcap/pcap.h>
+#include "trace.h"
 
 int main(int argc, char* argv[]) {
 
@@ -32,9 +33,18 @@ int main(int argc, char* argv[]) {
         // print metadata
         printf("Packet number: %lu Packet Len: %d\n", ++pkt_cntr, pkt_header.caplen);
 
+        ethernetHeader_t eth_header;
+        memcpy
+
+        // print ethernet header
+        printf("\t\tEthernet Header\n");
+        printf("\t\t\tDest MAC: %x\n", );
+        printf("lenk
 
         data_ptr = pcap_next(pcap_ptr, &pkt_header);
     }
+    
+    printf("%lu\n", sizeof(ethernetHeader_t));
 
     // close file
     pcap_close(pcap_ptr);
