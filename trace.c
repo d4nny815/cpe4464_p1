@@ -20,6 +20,14 @@ void print_hex(const uint8_t* data, size_t len) {
     printf("\n");
 }
 
+uint8_t flip_byte(uint8_t byte) {
+    uint8_t flipped = 0;
+    for (int i = 0; i < 8; i++) {
+        flipped |= ((byte >> i) & 1) << (7 - i);
+    }
+    return flipped;
+}
+
 
 void handle_ip_packet(ethernetHeader_t* eth_header);
 void handle_arp_packet(ethernetHeader_t* eth_header);
@@ -33,12 +41,15 @@ void print_ip_header(ipHeader_t* ip_header, unsigned short checksum);
 void print_icmp_type(uint8_t ttl);
 void print_arp_header(arpHeader_t* arp_header);
 void print_udp_header(udpHeader_t* udp_header);
+void print_tcp_header(tcpHeader_t* tcp_header);
 
 void make_mac_addr_str(char* mac_addr_str_buf, uint16_t p1, uint16_t p2, uint16_t p3);
 void make_ip_addr_str(char* ip_addr_buf, uint32_t ip_addr);
 
 char ip_addr_str_buf[IP_STR_LEN];
 char mac_addr_str_buf[MAC_STR_LEN];
+const char* CORRECT_CHECKSUM_STR = "Correct";
+const char* INCORRECT_CHECKSUM_STR = "Incorrect";
 
 int main(int argc, char* argv[]) {
     if (argc != TRACE_ARG_COUNT) {
@@ -105,7 +116,6 @@ void handle_ip_packet(ethernetHeader_t* eth_header) {
             printf("\n\tICMP Header\n");
             print_icmp_type(ip_header.ttl);
             break;
-        // case TCP_PROTOCOL:
         case UDP_PROTOCOL:
             printf("\n\tUDP Header\n");
             udpHeader_t udp_header;
@@ -113,6 +123,13 @@ void handle_ip_packet(ethernetHeader_t* eth_header) {
             udp_header = *((udpHeader_t*)(eth_header->data + udp_header_offset));
             print_udp_header(&udp_header);
             break;    
+        case TCP_PROTOCOL:
+            printf("\n\tTCP Header\n");
+            tcpHeader_t tcp_header;
+            size_t tcp_header_offset = ip_header.header_len * 4;
+            tcp_header = *((tcpHeader_t*)(eth_header->data + tcp_header_offset));
+            print_tcp_header(&tcp_header);
+            break;
         default:
             printf("Unknown IP Protocol\n");
     }
@@ -221,9 +238,8 @@ void print_arp_header(arpHeader_t* arp_header) {
 }
 
 void print_ip_header(ipHeader_t* ip_header, unsigned short checksum) {
-    const char* CORRECT_CHECKSUM_STR = "Correct";
-    const char* INCORRECT_CHECKSUM_STR = "Incorrect";
-    const char* checksum_str = (checksum == ip_header->checksum) ? CORRECT_CHECKSUM_STR : INCORRECT_CHECKSUM_STR;
+    
+    const char* checksum_str = (checksum == 0) ? CORRECT_CHECKSUM_STR : INCORRECT_CHECKSUM_STR;
 
     printf("\t\tTOS: 0x%x\n", ip_header->tos);
     printf("\t\tTTL: %u\n", ip_header->ttl);
@@ -286,6 +302,32 @@ void print_udp_header(udpHeader_t* udp_header) {
 
     printf("\t\tSource Port:  %u\n", udp_header->src_port);
     printf("\t\tDest Port:  %u\n", udp_header->dst_port);
+}
+
+void print_tcp_header(tcpHeader_t* tcp_header) {
+    const char* yes_str = "Yes";
+    const char* no_str = "No";
+    
+    tcp_header->src_port = ntohs(tcp_header->src_port);
+    tcp_header->dst_port = ntohs(tcp_header->dst_port);
+    tcp_header->seq_num = ntohl(tcp_header->seq_num);
+    tcp_header->ack_num = ntohl(tcp_header->ack_num);
+    // tcp_header->flags = flip_byte(tcp_header->flags);
+    tcp_header->window_size = ntohs(tcp_header->window_size);
+    tcp_header->checksum = ntohs(tcp_header->checksum);
+
+    unsigned short checksum = in_cksum((unsigned short*)tcp_header, tcp_header->data_offset * 4);
+
+    printf("\t\tSource Port:  %u\n", tcp_header->src_port);
+    printf("\t\tDest Port:  %u\n", tcp_header->dst_port);
+    printf("\t\tSequence Number: %u\n", tcp_header->seq_num);
+    printf("\t\tACK Number: %u\n", tcp_header->ack_num);
+    printf("\t\tSYN Flag: %s\n", (tcp_header->flags & SYN_FLAG_MASK) ? yes_str : no_str);
+    printf("\t\tRST Flag: %s\n", (tcp_header->flags & RST_FLAG_MASK) ? yes_str : no_str);
+    printf("\t\tFIN Flag: %s\n", (tcp_header->flags & FIN_FLAG_MASK) ? yes_str : no_str);
+    printf("\t\tWindow Size: %u\n", tcp_header->window_size);
+    printf("\t\tChecksum: %s (0x%x)\n", checksum == 0 ? CORRECT_CHECKSUM_STR : INCORRECT_CHECKSUM_STR, tcp_header->checksum);
+
 }
 
 void make_ip_addr_str(char* ip_addr_buf, uint32_t ip_addr) {

@@ -69,5 +69,22 @@ typedef struct __attribute__((packed)) udpHeader_t {
     uint16_t checksum;
 } udpHeader_t;
 
+typedef struct __attribute__((packed)) tcpHeader_t {
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint32_t seq_num;
+    uint32_t ack_num;
+    uint8_t data_offset: 4;
+    uint8_t reserved: 4;
+    uint8_t flags;
+    uint16_t window_size;
+    uint16_t checksum;
+    uint16_t urgent_pointer;
+} tcpHeader_t;
+
+#define SYN_FLAG_MASK 0x02
+#define RST_FLAG_MASK 0x04
+#define FIN_FLAG_MASK 0x01
+
 
 #endif // # TRACE_H
