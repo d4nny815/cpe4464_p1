@@ -20,6 +20,9 @@ void print_hex(const uint8_t* data, size_t len) {
 }
 
 
+void handle_ip_packet(ethernetHeader_t* eth_header);
+void handle_arp_packet(ethernetHeader_t* eth_header);
+
 void print_eth_header(ethernetHeader_t* eth_header);
 void print_ip_header(ipHeader_t* ip_header);
 void print_icmp_type(uint8_t ttl);
@@ -59,7 +62,7 @@ int main(int argc, char* argv[]) {
     data_ptr = pcap_next(pcap_ptr, &pkt_header);
     while (data_ptr) {
         // print metadata
-        printf("\nPacket number: %lu Packet Len: %d\n", ++pkt_cntr, pkt_header.caplen);
+        printf("\nPacket number: %lu  Packet Len: %d\n", ++pkt_cntr, pkt_header.caplen);
         
         // ethernet frame portion
         ethernetHeader_t eth_header;
@@ -69,30 +72,10 @@ int main(int argc, char* argv[]) {
         // packet type portion
         switch (eth_header.type) {
             case ETH_IP_TYPE:
-                printf("\n\tIP Header\n");
-
-                // IP header
-                ipHeader_t ip_header;
-                construct_ip_header(&ip_header, eth_header.data);
-                print_ip_header(&ip_header);
-
-                switch (ip_header.protocol) {
-                    case ICMP_PROTOCOL:
-                        printf("\n\tICMP Header\n");
-                        print_icmp_type(ip_header.ttl);
-                        break;
-                    default:
-                        printf("Unknown IP Protocol\n");
-                }
-
+                handle_ip_packet(&eth_header);
                 break;
             case ETH_ARP_TYPE:
-                printf("\n\tARP Packet\n");
-                arpHeader_t arp_header;
-                memset(&arp_header, 0, sizeof(arpHeader_t));
-
-                construct_arp_header(&arp_header, eth_header.data);
-                print_arp_header(&arp_header);
+                handle_arp_packet(&eth_header);
                 break;
             default:
                 printf("\tUnknown Packet Type\n");
@@ -105,6 +88,33 @@ int main(int argc, char* argv[]) {
     pcap_close(pcap_ptr);
 
     return 0;
+}
+
+void handle_ip_packet(ethernetHeader_t* eth_header) {
+    ipHeader_t ip_header;
+    construct_ip_header(&ip_header, eth_header->data);
+    
+    printf("\n\tIP Header\n");
+    print_ip_header(&ip_header);
+
+    switch (ip_header.protocol) {
+        case ICMP_PROTOCOL:
+            printf("\n\tICMP Header\n");
+            print_icmp_type(ip_header.ttl);
+            break;
+        // case TCP_PROTOCOL:
+        // case UDP_PROTOCOL:    
+        default:
+            printf("Unknown IP Protocol\n");
+    }
+}
+
+void handle_arp_packet(ethernetHeader_t* eth_header) {
+    arpHeader_t arp_header;
+    construct_arp_header(&arp_header, eth_header->data);
+
+    printf("\n\tARP Header\n");
+    print_arp_header(&arp_header);
 }
 
 void make_ip_addr_str(char* ip_addr_buf, uint32_t ip_addr) {
@@ -132,7 +142,7 @@ void make_mac_addr_str(char* mac_addr_str_buf, uint16_t p1, uint16_t p2, uint16_
 }
 
 void construct_eth_frame(ethernetHeader_t* eth_header, const u_char* data_ptr, struct pcap_pkthdr pkt_header) {
-    fprintf(stderr, "\tData Size: %u - %lu = %lu\n", pkt_header.caplen, ETH_METADATA_SIZE, pkt_header.caplen - ETH_METADATA_SIZE);
+    // fprintf(stderr, "\tData Size: %u - %lu = %lu\n", pkt_header.caplen, ETH_METADATA_SIZE, pkt_header.caplen - ETH_METADATA_SIZE);
     
     // make an eth frame from the data_ptr
     memcpy(eth_header, data_ptr, ETH_MAIN_HEADER_SIZE); // copy metadata into struct
@@ -216,15 +226,27 @@ void print_ip_header(ipHeader_t* ip_header) {
 
 void print_icmp_type(uint8_t ttl) {
     // TODO: finish this
-    printf("\t\tType: %x,", ttl);
+    printf("\t\tType: ");
 
     // reply, request, unknown
+    // switch (ttl) {
+    //     case 0:
+    //         printf("Reply\n");
+    //         break;
+    //     case 8:
+    //         printf("Request\n");
+    //         break;
+    //     default:
+    //         printf("Unknown\n");
+    // }
+    // ? why are these the values
     switch (ttl) {
-        case 0:
-            printf("Reply\n");
-            break;
-        case 8:
+        case 128:
             printf("Request\n");
+        break;
+        case 52:
+        case 242:
+            printf("Reply\n");
             break;
         default:
             printf("Unknown\n");
@@ -266,7 +288,7 @@ void print_arp_header(arpHeader_t* arp_header) {
     make_ip_addr_str(ip_addr_str_buf, arp_header->src_ip_addr);
     printf("\t\tSender IP: %s\n", ip_addr_str_buf);
     make_mac_addr_str(mac_addr_str_buf, arp_header->dst_mac_addr1, arp_header->dst_mac_addr2, arp_header->dst_mac_addr3);
-    printf("\t\tDest MAC: %s\n", mac_addr_str_buf);
+    printf("\t\tTarget MAC: %s\n", mac_addr_str_buf);
     make_ip_addr_str(ip_addr_str_buf, arp_header->dst_ip_addr);
-    printf("\t\tDest IP: %s\n", ip_addr_str_buf);
+    printf("\t\tTarget IP: %s\n", ip_addr_str_buf);
 }
