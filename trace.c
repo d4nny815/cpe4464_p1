@@ -5,6 +5,7 @@
 
 #include "trace.h"
 #include "smartalloc.h"
+#include "checksum.h"
 
 #define TRACE_ARG_COUNT (2)
 
@@ -23,18 +24,17 @@ void print_hex(const uint8_t* data, size_t len) {
 void handle_ip_packet(ethernetHeader_t* eth_header);
 void handle_arp_packet(ethernetHeader_t* eth_header);
 
+void construct_eth_frame(ethernetHeader_t* eth_header, const u_char* data_ptr, struct pcap_pkthdr pkt_header);
+void construct_ip_header(ipHeader_t* ip_header, const uint8_t* data);
+void construct_arp_header(arpHeader_t* arp_header, const uint8_t* data);
+
 void print_eth_header(ethernetHeader_t* eth_header);
-void print_ip_header(ipHeader_t* ip_header);
+void print_ip_header(ipHeader_t* ip_header, unsigned short checksum);
 void print_icmp_type(uint8_t ttl);
 void print_arp_header(arpHeader_t* arp_header);
 
-void construct_eth_frame(ethernetHeader_t* eth_header, const u_char* data_ptr, struct pcap_pkthdr pkt_header);
-void clean_eth_frame(ethernetHeader_t* eth_header);
 void make_mac_addr_str(char* mac_addr_str_buf, uint16_t p1, uint16_t p2, uint16_t p3);
 void make_ip_addr_str(char* ip_addr_buf, uint32_t ip_addr);
-
-void construct_ip_header(ipHeader_t* ip_header, const uint8_t* data);
-void construct_arp_header(arpHeader_t* arp_header, const uint8_t* data);
 
 char ip_addr_str_buf[IP_STR_LEN];
 char mac_addr_str_buf[MAC_STR_LEN];
@@ -93,9 +93,11 @@ int main(int argc, char* argv[]) {
 void handle_ip_packet(ethernetHeader_t* eth_header) {
     ipHeader_t ip_header;
     construct_ip_header(&ip_header, eth_header->data);
-    
+    unsigned short checksum = in_cksum((unsigned short*)&ip_header, ip_header.header_len * 4);
+
+
     printf("\n\tIP Header\n");
-    print_ip_header(&ip_header);
+    print_ip_header(&ip_header, checksum);
 
     switch (ip_header.protocol) {
         case ICMP_PROTOCOL:
@@ -117,29 +119,6 @@ void handle_arp_packet(ethernetHeader_t* eth_header) {
     print_arp_header(&arp_header);
 }
 
-void make_ip_addr_str(char* ip_addr_buf, uint32_t ip_addr) {
-    uint8_t first = (ip_addr >> 24) & 0xff;
-    uint8_t sec = (ip_addr >> 16) & 0xff;
-    uint8_t third = (ip_addr >> 8) & 0xff;
-    uint8_t fourth = (ip_addr >> 0) & 0xff;
-    
-    snprintf(ip_addr_buf, IP_STR_LEN, "%u.%u.%u.%u", first, sec, third, fourth);
-
-    return;
-}
-
-void make_mac_addr_str(char* mac_addr_str_buf, uint16_t p1, uint16_t p2, uint16_t p3) {
-    uint8_t p1_upper = p1 >> 8 & 0xFF;
-    uint8_t p1_lower = p1 & 0xFF;
-    uint8_t p2_upper = p2 >> 8 & 0xFF;
-    uint8_t p2_lower = p2 & 0xFF;
-    uint8_t p3_upper = p3 >> 8 & 0xFF;
-    uint8_t p3_lower = p3 & 0xFF;
-
-    snprintf(mac_addr_str_buf, MAC_STR_LEN, "%x:%x:%x:%x:%x:%x", p1_upper, p1_lower, p2_upper, p2_lower, p3_upper, p3_lower);
-    
-    return;
-}
 
 void construct_eth_frame(ethernetHeader_t* eth_header, const u_char* data_ptr, struct pcap_pkthdr pkt_header) {
     // fprintf(stderr, "\tData Size: %u - %lu = %lu\n", pkt_header.caplen, ETH_METADATA_SIZE, pkt_header.caplen - ETH_METADATA_SIZE);
@@ -165,6 +144,33 @@ void construct_eth_frame(ethernetHeader_t* eth_header, const u_char* data_ptr, s
     return;
 }
 
+void construct_ip_header(ipHeader_t* ip_header, const uint8_t* data) {
+    *ip_header = *((ipHeader_t*)data);
+    
+    ip_header->checksum = ntohs(ip_header->checksum);
+    ip_header->src_addr = ntohl(ip_header->src_addr);
+    ip_header->dst_addr = ntohl(ip_header->dst_addr);
+
+    return;
+}
+
+void construct_arp_header(arpHeader_t* arp_header, const uint8_t* data) {
+    *arp_header = *((arpHeader_t*)data);
+
+    arp_header->opcode = ntohs(arp_header->opcode);
+    arp_header->src_mac_addr1 = ntohs(arp_header->src_mac_addr1);
+    arp_header->src_mac_addr2 = ntohs(arp_header->src_mac_addr2);
+    arp_header->src_mac_addr3 = ntohs(arp_header->src_mac_addr3);
+    arp_header->src_ip_addr = ntohl(arp_header->src_ip_addr);
+    arp_header->dst_mac_addr1 = ntohs(arp_header->dst_mac_addr1);
+    arp_header->dst_mac_addr2 = ntohs(arp_header->dst_mac_addr2);
+    arp_header->dst_mac_addr3 = ntohs(arp_header->dst_mac_addr3);
+    arp_header->dst_ip_addr = ntohl(arp_header->dst_ip_addr);   
+
+    return;
+}
+
+
 void print_eth_header(ethernetHeader_t* eth_header) {
     printf("\n\tEthernet Header\n");
     make_mac_addr_str(mac_addr_str_buf, eth_header->src_addr1, eth_header->src_addr2, eth_header->src_addr3);
@@ -184,19 +190,34 @@ void print_eth_header(ethernetHeader_t* eth_header) {
     }
 }
 
-void construct_ip_header(ipHeader_t* ip_header, const uint8_t* data) {
-    *ip_header = *((ipHeader_t*)data);
-    
-    ip_header->checksum = ntohs(ip_header->checksum);
-    ip_header->src_addr = ntohl(ip_header->src_addr);
-    ip_header->dst_addr = ntohl(ip_header->dst_addr);
+void print_arp_header(arpHeader_t* arp_header) {
+    printf("\t\tOpcode: ");
 
-    return;
+    switch (arp_header->opcode) {
+        case 1:
+            printf("Request\n");
+            break;
+        case 2:
+            printf("Reply\n");
+            break;
+        default:
+            printf("Unknown\n");
+    }
+
+    make_mac_addr_str(mac_addr_str_buf, arp_header->src_mac_addr1, arp_header->src_mac_addr2, arp_header->src_mac_addr3);
+    printf("\t\tSender MAC: %s\n", mac_addr_str_buf);
+    make_ip_addr_str(ip_addr_str_buf, arp_header->src_ip_addr);
+    printf("\t\tSender IP: %s\n", ip_addr_str_buf);
+    make_mac_addr_str(mac_addr_str_buf, arp_header->dst_mac_addr1, arp_header->dst_mac_addr2, arp_header->dst_mac_addr3);
+    printf("\t\tTarget MAC: %s\n", mac_addr_str_buf);
+    make_ip_addr_str(ip_addr_str_buf, arp_header->dst_ip_addr);
+    printf("\t\tTarget IP: %s\n", ip_addr_str_buf);
 }
 
-void print_ip_header(ipHeader_t* ip_header) {
+void print_ip_header(ipHeader_t* ip_header, unsigned short checksum) {
     const char* CORRECT_CHECKSUM_STR = "Correct";
-    // const char* INVALID_CHECKSUM_STR = "BAD!!!";
+    const char* INCORRECT_CHECKSUM_STR = "Incorrect";
+    const char* checksum_str = (checksum == ip_header->checksum) ? CORRECT_CHECKSUM_STR : INCORRECT_CHECKSUM_STR;
 
     printf("\t\tTOS: 0x%x\n", ip_header->tos);
     printf("\t\tTTL: %u\n", ip_header->ttl);
@@ -217,7 +238,7 @@ void print_ip_header(ipHeader_t* ip_header) {
         }
     
     
-    printf("\t\tChecksum: %s (0x%x)\n", CORRECT_CHECKSUM_STR, ip_header->checksum); // TODO: check validity
+    printf("\t\tChecksum: %s (0x%x)\n", checksum_str, ip_header->checksum); // TODO: check validity
     make_ip_addr_str(ip_addr_str_buf, ip_header->src_addr);
     printf("\t\tSender IP: %s\n", ip_addr_str_buf);
     make_ip_addr_str(ip_addr_str_buf, ip_header->dst_addr);
@@ -253,42 +274,27 @@ void print_icmp_type(uint8_t ttl) {
     }
 }
 
-void construct_arp_header(arpHeader_t* arp_header, const uint8_t* data) {
-    *arp_header = *((arpHeader_t*)data);
-
-    arp_header->opcode = ntohs(arp_header->opcode);
-    arp_header->src_mac_addr1 = ntohs(arp_header->src_mac_addr1);
-    arp_header->src_mac_addr2 = ntohs(arp_header->src_mac_addr2);
-    arp_header->src_mac_addr3 = ntohs(arp_header->src_mac_addr3);
-    arp_header->src_ip_addr = ntohl(arp_header->src_ip_addr);
-    arp_header->dst_mac_addr1 = ntohs(arp_header->dst_mac_addr1);
-    arp_header->dst_mac_addr2 = ntohs(arp_header->dst_mac_addr2);
-    arp_header->dst_mac_addr3 = ntohs(arp_header->dst_mac_addr3);
-    arp_header->dst_ip_addr = ntohl(arp_header->dst_ip_addr);   
+void make_ip_addr_str(char* ip_addr_buf, uint32_t ip_addr) {
+    uint8_t first = (ip_addr >> 24) & 0xff;
+    uint8_t sec = (ip_addr >> 16) & 0xff;
+    uint8_t third = (ip_addr >> 8) & 0xff;
+    uint8_t fourth = (ip_addr >> 0) & 0xff;
+    
+    snprintf(ip_addr_buf, IP_STR_LEN, "%u.%u.%u.%u", first, sec, third, fourth);
 
     return;
 }
 
-void print_arp_header(arpHeader_t* arp_header) {
-    printf("\t\tOpcode: ");
+void make_mac_addr_str(char* mac_addr_str_buf, uint16_t p1, uint16_t p2, uint16_t p3) {
+    uint8_t p1_upper = p1 >> 8 & 0xFF;
+    uint8_t p1_lower = p1 & 0xFF;
+    uint8_t p2_upper = p2 >> 8 & 0xFF;
+    uint8_t p2_lower = p2 & 0xFF;
+    uint8_t p3_upper = p3 >> 8 & 0xFF;
+    uint8_t p3_lower = p3 & 0xFF;
 
-    switch (arp_header->opcode) {
-        case 1:
-            printf("Request\n");
-            break;
-        case 2:
-            printf("Reply\n");
-            break;
-        default:
-            printf("Unknown\n");
-    }
-
-    make_mac_addr_str(mac_addr_str_buf, arp_header->src_mac_addr1, arp_header->src_mac_addr2, arp_header->src_mac_addr3);
-    printf("\t\tSender MAC: %s\n", mac_addr_str_buf);
-    make_ip_addr_str(ip_addr_str_buf, arp_header->src_ip_addr);
-    printf("\t\tSender IP: %s\n", ip_addr_str_buf);
-    make_mac_addr_str(mac_addr_str_buf, arp_header->dst_mac_addr1, arp_header->dst_mac_addr2, arp_header->dst_mac_addr3);
-    printf("\t\tTarget MAC: %s\n", mac_addr_str_buf);
-    make_ip_addr_str(ip_addr_str_buf, arp_header->dst_ip_addr);
-    printf("\t\tTarget IP: %s\n", ip_addr_str_buf);
+    snprintf(mac_addr_str_buf, MAC_STR_LEN, "%x:%x:%x:%x:%x:%x", p1_upper, p1_lower, p2_upper, p2_lower, p3_upper, p3_lower);
+    
+    return;
 }
+
