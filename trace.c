@@ -8,12 +8,16 @@
 
 
 void print_eth_header(ethernetHeader_t* eth_header);
+void print_ip_header(ipHeader_t* ip_header);
+void print_icmp_type(uint8_t ttl);
 
 
 void construct_eth_frame(ethernetHeader_t* eth_header, const u_char* data_ptr, struct pcap_pkthdr pkt_header);
 void clean_eth_frame(ethernetHeader_t* eth_header);
 void construct_mac_addr(char* mac_addr_str_buf, uint16_t p1, uint16_t p2, uint16_t p3);
+void construct_ip_addr(char* ip_addr_buf, uint32_t ip_addr);
 
+void construct_ip_header(ipHeader_t* ip_header, const uint8_t* data);
 
 int main(int argc, char* argv[]) {
     // take in 1 arg
@@ -42,9 +46,10 @@ int main(int argc, char* argv[]) {
     // read packet by packet
     data_ptr = pcap_next(pcap_ptr, &pkt_header);
     while (data_ptr) {
+        
         // print metadata
         printf("\nPacket number: %lu Packet Len: %d\n", ++pkt_cntr, pkt_header.caplen);
-
+        
         // ethernet frame portion
         ethernetHeader_t eth_header;
         construct_eth_frame(&eth_header, data_ptr, pkt_header);
@@ -53,8 +58,22 @@ int main(int argc, char* argv[]) {
         // packet type portion
         switch (eth_header.type) {
             case ETH_IP_TYPE:
-                printf("\n\tIPv4 Packet\n");
-                // print IP header
+                printf("\n\tIP Header\n");
+
+                // IP header
+                ipHeader_t ip_header;
+                construct_ip_header(&ip_header, eth_header.data);
+                print_ip_header(&ip_header);
+
+                switch (ip_header.protocol) {
+                    case ICMP_PROTOCOL:
+                        printf("\n\tICMP Header\n");
+                        print_icmp_type(ip_header.ttl);
+                        break;
+                    default:
+                        printf("Unknown IP Protocol\n");
+                }
+
                 break;
             case ETH_ARP_TYPE:
                 printf("\tARP Packet\n");
@@ -62,6 +81,7 @@ int main(int argc, char* argv[]) {
             default:
                 printf("\tUnknown Packet Type\n");
         }
+
         
         clean_eth_frame(&eth_header);
 
@@ -72,6 +92,16 @@ int main(int argc, char* argv[]) {
     pcap_close(pcap_ptr);
 
     return 0;
+}
+
+void construct_ip_addr(char* ip_addr_buf, uint32_t ip_addr) {
+    uint8_t first = (ip_addr >> 24) & 0xff;
+    uint8_t sec = (ip_addr >> 16) & 0xff;
+    uint8_t third = (ip_addr >> 8) & 0xff;
+    uint8_t fourth = (ip_addr >> 0) & 0xff;
+    snprintf(ip_addr_buf, IP_STR_LEN, "%u.%u.%u.%u", first, sec, third, fourth);
+
+    return;
 }
 
 void construct_mac_addr(char* mac_addr_str_buf, uint16_t p1, uint16_t p2, uint16_t p3) {
@@ -89,6 +119,7 @@ void construct_mac_addr(char* mac_addr_str_buf, uint16_t p1, uint16_t p2, uint16
 
 void construct_eth_frame(ethernetHeader_t* eth_header, const u_char* data_ptr, struct pcap_pkthdr pkt_header) {
     // make an eth frame from the data_ptr
+    // const size_t ETH_DATA_SIZE = pkt_header.caplen - ETH_MAIN_HEADER_SIZE - ETH_CRC_SIZE;
     eth_header->data = (uint8_t*)malloc(pkt_header.caplen - ETH_MAIN_HEADER_SIZE - ETH_CRC_SIZE);
     memcpy(eth_header, data_ptr, ETH_MAIN_HEADER_SIZE); // copy metadata into struct
     memcpy(eth_header->data, (void*)(data_ptr + ETH_DATA_OFFSET), pkt_header.caplen - ETH_METADATA_SIZE); // copy data into struct
@@ -136,3 +167,43 @@ void print_eth_header(ethernetHeader_t* eth_header) {
     }
 }
 
+void construct_ip_header(ipHeader_t* ip_header, const uint8_t* data) {
+    *ip_header = *((ipHeader_t*)data);
+    
+    ip_header->checksum = ntohs(ip_header->checksum);
+    ip_header->src_addr = ntohl(ip_header->src_addr);
+    ip_header->dst_addr = ntohl(ip_header->dst_addr);
+
+    return;
+}
+
+void print_ip_header(ipHeader_t* ip_header) {
+    const char* CORRECT_CHECKSUM_STR = "Correct";
+    // const char* INVALID_CHECKSUM_STR = "BAD!!!";
+    char ip_addr_buf[IP_STR_LEN];
+
+    printf("\t\tTOS: 0x%x\n", ip_header->tos);
+    printf("\t\tTTL: %u\n", ip_header->ttl);
+    printf("\t\tProtocol: %d\n", ip_header->protocol); // TODO: make enum
+    printf("\t\tChecksum: %s (0x%x)\n", CORRECT_CHECKSUM_STR, ip_header->checksum); // TODO: check validity
+    construct_ip_addr(ip_addr_buf, ip_header->src_addr);
+    printf("\t\tSender IP: %s\n", ip_addr_buf);
+    construct_ip_addr(ip_addr_buf, ip_header->dst_addr);
+    printf("\t\tDest IP: %s\n", ip_addr_buf);
+}
+
+void print_icmp_type(uint8_t ttl) {
+    // TODO: finish this
+    printf("\t\tType: %x,", ttl);
+
+    switch (ttl) {
+        case 0: // reply
+            printf("Reply\n");
+            break;
+        case 8: // request
+            printf("Request\n");
+            break;
+        default:
+            printf("Unknown\n"); 
+    }
+}

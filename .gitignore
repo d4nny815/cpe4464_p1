@@ -4,3 +4,4 @@ CPE4464_p1_files/
 CPE4464_p1_files.tgz
 .DS_Store
 .vscode/
+*.dSYM/
