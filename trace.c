@@ -32,6 +32,7 @@ void print_eth_header(ethernetHeader_t* eth_header);
 void print_ip_header(ipHeader_t* ip_header, unsigned short checksum);
 void print_icmp_type(uint8_t ttl);
 void print_arp_header(arpHeader_t* arp_header);
+void print_udp_header(udpHeader_t* udp_header);
 
 void make_mac_addr_str(char* mac_addr_str_buf, uint16_t p1, uint16_t p2, uint16_t p3);
 void make_ip_addr_str(char* ip_addr_buf, uint32_t ip_addr);
@@ -105,7 +106,13 @@ void handle_ip_packet(ethernetHeader_t* eth_header) {
             print_icmp_type(ip_header.ttl);
             break;
         // case TCP_PROTOCOL:
-        // case UDP_PROTOCOL:    
+        case UDP_PROTOCOL:
+            printf("\n\tUDP Header\n");
+            udpHeader_t udp_header;
+            size_t udp_header_offset = ip_header.header_len * 4;
+            udp_header = *((udpHeader_t*)(eth_header->data + udp_header_offset));
+            print_udp_header(&udp_header);
+            break;    
         default:
             printf("Unknown IP Protocol\n");
     }
@@ -118,7 +125,6 @@ void handle_arp_packet(ethernetHeader_t* eth_header) {
     printf("\n\tARP Header\n");
     print_arp_header(&arp_header);
 }
-
 
 void construct_eth_frame(ethernetHeader_t* eth_header, const u_char* data_ptr, struct pcap_pkthdr pkt_header) {
     // fprintf(stderr, "\tData Size: %u - %lu = %lu\n", pkt_header.caplen, ETH_METADATA_SIZE, pkt_header.caplen - ETH_METADATA_SIZE);
@@ -272,6 +278,14 @@ void print_icmp_type(uint8_t ttl) {
         default:
             printf("Unknown\n");
     }
+}
+
+void print_udp_header(udpHeader_t* udp_header) {
+    udp_header->src_port = ntohs(udp_header->src_port);
+    udp_header->dst_port = ntohs(udp_header->dst_port);
+
+    printf("\t\tSource Port:  %u\n", udp_header->src_port);
+    printf("\t\tDest Port:  %u\n", udp_header->dst_port);
 }
 
 void make_ip_addr_str(char* ip_addr_buf, uint32_t ip_addr) {

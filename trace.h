@@ -4,8 +4,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 
-// TODO: make packed
-typedef struct ethernetHeader_t {
+typedef struct __attribute__((packed)) ethernetHeader_t {
     uint16_t src_addr1;
     uint16_t src_addr2;
     uint16_t src_addr3;
@@ -28,9 +27,9 @@ typedef struct ethernetHeader_t {
 #define ETH_CRC_SIZE (sizeof(uint32_t))
 #define ETH_METADATA_SIZE (ETH_MAIN_HEADER_SIZE + ETH_CRC_SIZE)
 
-typedef struct ipHeader_t {
-    uint8_t version: 4;
+typedef struct __attribute__((packed)) ipHeader_t {
     uint8_t header_len: 4;
+    uint8_t version: 4;
     uint8_t tos;
     uint16_t total_len;
     uint16_t id;
@@ -62,6 +61,13 @@ typedef struct __attribute__((packed)) arpHeader_t {
     uint16_t dst_mac_addr3;
     uint32_t dst_ip_addr;
 } arpHeader_t;  
+
+typedef struct __attribute__((packed)) udpHeader_t {
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint16_t length;
+    uint16_t checksum;
+} udpHeader_t;
 
 
 #endif // # TRACE_H
