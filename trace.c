@@ -2,6 +2,7 @@
 #include <pcap/pcap.h>
 #include <string.h>
 #include <inttypes.h>
+#include <stdbool.h>
 
 #include "trace.h"
 #include "smartalloc.h"
@@ -20,14 +21,39 @@ void print_hex(const uint8_t* data, size_t len) {
     printf("\n");
 }
 
-uint8_t flip_byte(uint8_t byte) {
-    uint8_t flipped = 0;
-    for (int i = 0; i < 8; i++) {
-        flipped |= ((byte >> i) & 1) << (7 - i);
-    }
-    return flipped;
-}
+unsigned short compute_tcp_checksum(ipHeader_t* ip_header, const uint8_t* ip_payload) {
+    uint16_t ip_header_len_bytes  = ip_header->header_len * 4;
+    uint16_t tcp_seg_len = ip_header->total_len - ip_header_len_bytes; // 
 
+
+    uint8_t buf[12 + 65535];  // 12-byte pseudo-header + max TCP segment
+    size_t  offset = 0;
+
+    // pseudo-header
+    uint32_t src_be = htonl(ip_header->src_addr);
+    memcpy(buf + offset, &src_be, sizeof(src_be));
+    offset += sizeof(src_be);
+
+    // ? is this right? I think it is, but I don't know why
+    uint32_t dst_be = htonl(ip_header->dst_addr);
+    memcpy(buf + offset, &dst_be, sizeof(dst_be));
+    offset += sizeof(dst_be);
+
+    buf[offset++] = 0;                       // zero byte
+    buf[offset++] = ip_header->protocol;     // protocol (TCP = 6)
+
+    // TCP segment length in bytes (big-endian)
+    uint16_t tcp_len_be = htons(tcp_seg_len);
+    memcpy(buf + offset, &tcp_len_be, sizeof(tcp_len_be));
+    offset += sizeof(tcp_len_be);
+
+    // TCP segment
+    memcpy(buf + offset, ip_payload, tcp_seg_len);
+    offset += tcp_seg_len;
+
+    // Compute checksum over the pseudo-header and TCP segment
+    return in_cksum((unsigned short*)buf, (int)offset);
+}
 
 void handle_ip_packet(ethernetHeader_t* eth_header);
 void handle_arp_packet(ethernetHeader_t* eth_header);
@@ -38,10 +64,11 @@ void construct_arp_header(arpHeader_t* arp_header, const uint8_t* data);
 
 void print_eth_header(ethernetHeader_t* eth_header);
 void print_ip_header(ipHeader_t* ip_header, unsigned short checksum);
-void print_icmp_type(uint8_t ttl);
+void print_icmp_type(uint8_t ttl, bool bad_checksum);
 void print_arp_header(arpHeader_t* arp_header);
 void print_udp_header(udpHeader_t* udp_header);
-void print_tcp_header(tcpHeader_t* tcp_header);
+void print_tcp_header(tcpHeader_t* tcp_header, unsigned short checksum);
+void print_common_port(uint16_t port);
 
 void make_mac_addr_str(char* mac_addr_str_buf, uint16_t p1, uint16_t p2, uint16_t p3);
 void make_ip_addr_str(char* ip_addr_buf, uint32_t ip_addr);
@@ -105,8 +132,9 @@ int main(int argc, char* argv[]) {
 void handle_ip_packet(ethernetHeader_t* eth_header) {
     ipHeader_t ip_header;
     construct_ip_header(&ip_header, eth_header->data);
-    unsigned short checksum = in_cksum((unsigned short*)&ip_header, ip_header.header_len * 4);
-
+    
+    // ! checksum is calculated over the IP header, before the byte swapping, so we need to pass the original data pointer to the checksum function
+    unsigned short checksum = in_cksum((unsigned short*)eth_header->data, ip_header.header_len * 4);
 
     printf("\n\tIP Header\n");
     print_ip_header(&ip_header, checksum);
@@ -114,7 +142,7 @@ void handle_ip_packet(ethernetHeader_t* eth_header) {
     switch (ip_header.protocol) {
         case ICMP_PROTOCOL:
             printf("\n\tICMP Header\n");
-            print_icmp_type(ip_header.ttl);
+            print_icmp_type(ip_header.ttl, checksum != 0);
             break;
         case UDP_PROTOCOL:
             printf("\n\tUDP Header\n");
@@ -128,7 +156,9 @@ void handle_ip_packet(ethernetHeader_t* eth_header) {
             tcpHeader_t tcp_header;
             size_t tcp_header_offset = ip_header.header_len * 4;
             tcp_header = *((tcpHeader_t*)(eth_header->data + tcp_header_offset));
-            print_tcp_header(&tcp_header);
+            unsigned short tcp_checksum = compute_tcp_checksum(&ip_header, eth_header->data + tcp_header_offset);
+            print_tcp_header(&tcp_header, tcp_checksum);
+            
             break;
         default:
             printf("Unknown IP Protocol\n");
@@ -173,6 +203,7 @@ void construct_ip_header(ipHeader_t* ip_header, const uint8_t* data) {
     ip_header->checksum = ntohs(ip_header->checksum);
     ip_header->src_addr = ntohl(ip_header->src_addr);
     ip_header->dst_addr = ntohl(ip_header->dst_addr);
+    ip_header->total_len = ntohs(ip_header->total_len);
 
     return;
 }
@@ -267,9 +298,13 @@ void print_ip_header(ipHeader_t* ip_header, unsigned short checksum) {
     printf("\t\tDest IP: %s\n", ip_addr_str_buf);
 }
 
-void print_icmp_type(uint8_t ttl) {
+void print_icmp_type(uint8_t ttl, bool bad_checksum) {
     // TODO: finish this
     printf("\t\tType: ");
+    if (bad_checksum) {
+        printf("Unknown\n");
+        return;
+    }
 
     // reply, request, unknown
     // switch (ttl) {
@@ -300,11 +335,13 @@ void print_udp_header(udpHeader_t* udp_header) {
     udp_header->src_port = ntohs(udp_header->src_port);
     udp_header->dst_port = ntohs(udp_header->dst_port);
 
-    printf("\t\tSource Port:  %u\n", udp_header->src_port);
-    printf("\t\tDest Port:  %u\n", udp_header->dst_port);
+    printf("\t\tSource Port:  ");
+    print_common_port(udp_header->src_port);
+    printf("\t\tDest Port:  ");
+    print_common_port(udp_header->dst_port);
 }
 
-void print_tcp_header(tcpHeader_t* tcp_header) {
+void print_tcp_header(tcpHeader_t* tcp_header, unsigned short checksum) {
     const char* yes_str = "Yes";
     const char* no_str = "No";
     
@@ -312,14 +349,13 @@ void print_tcp_header(tcpHeader_t* tcp_header) {
     tcp_header->dst_port = ntohs(tcp_header->dst_port);
     tcp_header->seq_num = ntohl(tcp_header->seq_num);
     tcp_header->ack_num = ntohl(tcp_header->ack_num);
-    // tcp_header->flags = flip_byte(tcp_header->flags);
     tcp_header->window_size = ntohs(tcp_header->window_size);
     tcp_header->checksum = ntohs(tcp_header->checksum);
 
-    unsigned short checksum = in_cksum((unsigned short*)tcp_header, tcp_header->data_offset * 4);
-
-    printf("\t\tSource Port:  %u\n", tcp_header->src_port);
-    printf("\t\tDest Port:  %u\n", tcp_header->dst_port);
+    printf("\t\tSource Port:  ");
+    print_common_port(tcp_header->src_port);
+    printf("\t\tDest Port:  ");
+    print_common_port(tcp_header->dst_port);
     printf("\t\tSequence Number: %u\n", tcp_header->seq_num);
     printf("\t\tACK Number: %u\n", tcp_header->ack_num);
     printf("\t\tSYN Flag: %s\n", (tcp_header->flags & SYN_FLAG_MASK) ? yes_str : no_str);
@@ -328,6 +364,35 @@ void print_tcp_header(tcpHeader_t* tcp_header) {
     printf("\t\tWindow Size: %u\n", tcp_header->window_size);
     printf("\t\tChecksum: %s (0x%x)\n", checksum == 0 ? CORRECT_CHECKSUM_STR : INCORRECT_CHECKSUM_STR, tcp_header->checksum);
 
+}
+
+void print_common_port(uint16_t port) {
+    switch (port) {
+        // case 20:
+        // case 21:
+        //     printf("FTP\n");
+        //     break;
+        // case 22:
+        //     printf("SSH\n");
+        //     break;
+        // case 23:
+        //     printf("Telnet\n");
+        //     break;
+        // case 25:
+        //     printf("SMTP\n");
+        //     break;
+        // case 110:
+        //     printf("POP3\n");
+        //     break;
+        case 80:
+            printf("HTTP\n");
+            break;
+        default:
+            printf("%u\n", port);
+    }
+
+
+    return;
 }
 
 void make_ip_addr_str(char* ip_addr_buf, uint32_t ip_addr) {
