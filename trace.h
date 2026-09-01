@@ -47,5 +47,21 @@ typedef struct ipHeader_t {
 #define TCP_PROTOCOL 6
 #define UDP_PROTOCOL 17
 
+typedef struct __attribute__((packed)) arpHeader_t {
+    uint16_t hw_type;
+    uint16_t protocol_type;
+    uint8_t hw_size;
+    uint8_t protocol_size;
+    uint16_t opcode;
+    uint16_t src_mac_addr1;
+    uint16_t src_mac_addr2;
+    uint16_t src_mac_addr3;
+    uint32_t src_ip_addr;
+    uint16_t dst_mac_addr1;
+    uint16_t dst_mac_addr2;
+    uint16_t dst_mac_addr3;
+    uint32_t dst_ip_addr;
+} arpHeader_t;  
+
 
 #endif // # TRACE_H
